@@ -1,5 +1,125 @@
 use modular_bitfield::prelude::*;
+use serde::{Deserialize, Serialize};
 
+/// AllSensorData is a struct that contains the data that is sent over the two radios
+/// It includes all telemetry data from the payload
+/// 
+/// The data includes the following:
+/// - ISM330DHCX Accelerometer and Gyroscope data
+/// - LSM6DSO32 Accelerometer and Gyroscope data
+/// - BMP390 Pressure, Temperature, and Altitude data
+/// - GPS Data, including Latitude, Longitude, Altitude, Speed, and Course, Number of Sats and UTC Time
+/// - ADXL375 Accelerometer data
+/// - The Second ISM330DHCX Accelerometer and Gyroscope data (In the future this will be hard mounted to the payload)
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+pub struct AllSensorData{
+    pub ism330dhcx: Option<ISM330DHCX>,
+    pub lsm6dso32: Option<LSM6DSO32>,
+    pub bmp390: Option<BMP390>,
+    pub gps: Option<GPS>,
+    pub adxl375: Option<ADXL375>,
+    pub ism330dhcx2: Option<ISM330DHCX>,
+}
+
+#[derive(Debug)]
+pub enum SensorUpdate {
+    ISM330DHCX(ISM330DHCX),
+    LSM6DSO32(LSM6DSO32),
+    BMP390(BMP390),
+    GPS(GPS),
+    ADXL375(ADXL375),
+    ISM330DHCX2(ISM330DHCX),
+}
+
+/// ISM330DHCX Accelerometer and Gyroscope data
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+pub struct ISM330DHCX{
+    pub temp: f32,
+    pub accel_x: f64,
+    pub accel_y: f64,
+    pub accel_z: f64,
+    pub gyro_x: f64,
+    pub gyro_y: f64,
+    pub gyro_z: f64,
+}
+
+/// LSM6DSO32 is a struct that contains the data from the LSM6DSO32 Accelerometer and Gyroscope
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+pub struct LSM6DSO32{
+    pub accel_x: f64,
+    pub accel_y: f64,
+    pub accel_z: f64,
+    pub gyro_x: f64,
+    pub gyro_y: f64,
+    pub gyro_z: f64,
+}
+
+/// BMP390 is a struct that contains the data from the BMP390 Pressure, Temperature, and Altitude sensor
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+pub struct BMP390{
+    pub pressure: f32,
+    pub temperature: f32,
+    pub altitude: f32,
+}
+
+/// GPS is a struct that contains the data from the GPS module
+/// The data includes Latitude, Longitude, Altitude, Speed, Course, Number of Sats, and UTC Time
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+pub struct GPS{
+    pub latitude: f64,
+    pub longitude: f64,
+    pub altitude: f64,
+    pub altitude_msl: f64,
+    pub num_sats: u8,
+    pub fix_type: GpsFix,
+    pub utc_time: i64,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GpsFix {
+    NoFix = 0,
+    DeadReckoningOnly = 1,
+    Fix2D = 2,
+    Fix3D = 3,
+    GPSPlusDeadReckoning = 4,
+    TimeOnlyFix = 5,
+}
+
+impl Default for GpsFix {
+    fn default() -> Self {
+        GpsFix::NoFix
+    }
+}
+
+impl Into<u8> for GpsFix {
+    fn into(self) -> u8 {
+        self as u8
+    }
+}
+
+impl From<u8> for GpsFix {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => GpsFix::NoFix,
+            1 => GpsFix::DeadReckoningOnly,
+            2 => GpsFix::Fix2D,
+            3 => GpsFix::Fix3D,
+            4 => GpsFix::GPSPlusDeadReckoning,
+            5 => GpsFix::TimeOnlyFix,
+            _ => GpsFix::NoFix,
+        }
+    }
+}
+
+/// ADXL375 is a struct that contains the data from the ADXL375 Accelerometer
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+pub struct ADXL375{
+    pub accel_x: i16,
+    pub accel_y: i16,
+    pub accel_z: i16,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct AprsCompressedPositionReport {
     pub time: [u8; 7],         // Time in DHM or HMS format (7 bytes)
     pub symbol_table: char,    // Symbol Table Identifier (either '/' or '\') (1 byte)
@@ -20,6 +140,7 @@ pub struct Acknowledgement {
 /// The Comment field contains both Mesh data and Custom data from the ADS
 /// The Comment field is 40 bytes long (320 bits)
 #[bitfield(bits = 256)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Comment {
     pub uid: B8, // Unique Identifier (8 bits)
     pub destination_uid: B8, // Destination Unique Identifier (8 bits)
@@ -42,6 +163,7 @@ pub struct Comment {
 }
 
 #[derive(BitfieldSpecifier)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum DeviceType {
     Ground = 0,
     Top = 1,
@@ -50,6 +172,7 @@ pub enum DeviceType {
 }
 
 #[derive(BitfieldSpecifier)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum MessageType {
     Ack = 0,
     Data = 1,
@@ -75,6 +198,7 @@ pub struct AdsUncompressed {
 
 #[bitfield(bits = 128)]
 #[derive(BitfieldSpecifier)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct AdsCompressedPart1 {
     pub lat: B16,
     pub lon: B16,
@@ -88,6 +212,7 @@ pub struct AdsCompressedPart1 {
 
 #[bitfield(bits = 80)]
 #[derive(BitfieldSpecifier)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct AdsCompressedPart2 {
     pub alt: B16,
     pub predicted_apogee: B16,
