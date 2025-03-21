@@ -1,5 +1,6 @@
 use modular_bitfield::prelude::*;
 use serde::{Deserialize, Serialize};
+use ublox::GpsFix as UbloxGPSFix;
 
 /// AllSensorData is a struct that contains the data that is sent over the two radios
 /// It includes all telemetry data from the payload
@@ -64,7 +65,7 @@ pub struct BMP390{
 
 /// GPS is a struct that contains the data from the GPS module
 /// The data includes Latitude, Longitude, Altitude, Speed, Course, Number of Sats, and UTC Time
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, serde::Serialize, Deserialize, Clone, Copy)]
 pub struct GPS{
     pub latitude: f64,
     pub longitude: f64,
@@ -72,7 +73,7 @@ pub struct GPS{
     pub altitude_msl: f64,
     pub num_sats: u8,
     pub fix_type: GpsFix,
-    pub utc_time: i64,
+    pub utc_time: UTC,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -97,6 +98,20 @@ impl Into<u8> for GpsFix {
     }
 }
 
+impl From<UbloxGPSFix> for GpsFix {
+    fn from(value: UbloxGPSFix) -> Self {
+        match value {
+            UbloxGPSFix::NoFix => GpsFix::NoFix,
+            UbloxGPSFix::DeadReckoningOnly => GpsFix::DeadReckoningOnly,
+            UbloxGPSFix::Fix2D => GpsFix::Fix2D,
+            UbloxGPSFix::Fix3D => GpsFix::Fix3D,
+            UbloxGPSFix::GPSPlusDeadReckoning => GpsFix::GPSPlusDeadReckoning,
+            UbloxGPSFix::TimeOnlyFix => GpsFix::TimeOnlyFix,
+            _ => GpsFix::NoFix, // Handle all other possible values
+        }
+    }
+}
+
 impl From<u8> for GpsFix {
     fn from(value: u8) -> Self {
         match value {
@@ -111,6 +126,28 @@ impl From<u8> for GpsFix {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
+pub struct UTC {
+    /// GPS Millisecond Time of Week
+    pub itow: u32,
+    pub time_accuracy_estimate_ns: u32,
+    /// Nanoseconds of second, range -1e9 .. 1e9
+    pub nanos: i32,
+    /// Year, range 1999..2099
+    pub year: u16,
+    /// Month, range 1..12
+    pub month: u8,
+    /// Day of Month, range 1..31
+    pub day: u8,
+    /// Hour of Day, range 0..23
+    pub hour: u8,
+    /// Minute of Hour, range 0..59
+    pub min: u8,
+    /// Seconds of Minute, range 0..59
+    pub sec: u8,
+    pub valid: u8,
+}
+
 /// ADXL375 is a struct that contains the data from the ADXL375 Accelerometer
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 pub struct ADXL375{
@@ -119,16 +156,27 @@ pub struct ADXL375{
     pub accel_z: i16,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
+pub struct MiniData {
+    pub lat: f64,
+    pub lon: f64,
+    pub alt: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 pub struct AprsCompressedPositionReport {
+    pub compression_format: char,   // Symbol Format Identifier either '/' or '@' (1 byte)
     pub time: [u8; 7],         // Time in DHM or HMS format (7 bytes)
-    pub symbol_table: char,    // Symbol Table Identifier (either '/' or '\') (1 byte)
+    pub symbol_table: char,    // Symbol Table Identifier
     pub compressed_lat: [u8; 4], // Compressed Latitude (YYYY) (4 bytes)
     pub compressed_long: [u8; 4], // Compressed Longitude (XXXX) (4 bytes)
     pub symbol_code: char,     // Symbol Code (1 byte)
-    pub compressed_altitude: [u8; 2], // Compressed Altitude (XX) (2 bytes)
-    pub compressed_type: char, // Compressed Type (1 byte)
+    pub compressed_altitude: [u8; 2], // Compressed Altitude/Speed/Course Speed/Radio Range (XX) (2 bytes)
+    pub compression_type: char, // Compressed Type (1 byte)
     pub comment: Comment, // Optional Comment (max 40 chars) (40 bytes)
+    pub lat: f64,
+    pub lon: f64,
+    pub alt: f64,
 }
 
 pub struct Acknowledgement {
@@ -136,35 +184,69 @@ pub struct Acknowledgement {
     pub ack: bool,
 }
 
-/// Bitfield for the Comment field
-/// The Comment field contains both Mesh data and Custom data from the ADS
-/// The Comment field is 40 bytes long (320 bits)
-#[bitfield(bits = 256)]
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Comment {
-    pub uid: B8, // Unique Identifier (8 bits)
-    pub destination_uid: B8, // Destination Unique Identifier (8 bits)
-    pub msg_id: B8, // Message ID (8 bits)
-    pub hops_left : B3, // Hops Left (3 bits)
-    #[bits = 2]
-    pub comment_type: DeviceType, // Type (2 bits)
-    #[bits = 2]
-    pub msg_type: MessageType, // Message Type (2 bit)
-    pub team_number: B8, // Team ID (6 bits)
-    // 39 Bits for above fields
-    #[bits = 128]
-    pub ads: AdsCompressedPart1,
-    #[bits = 80]
-    pub ads2: AdsCompressedPart2,
-    // 208 Bits for ADS data
-    // 39 + 208 = 247 Bits
+#[bitfield(bits = 8)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+pub struct CompressionType {
     #[skip]
-    unused: B9, // Unused bits (9 bits)
+    unused: B2, // Not used (2 bits)
+    #[bits = 1]
+    pub gps_fix: APRSGPSFix, // GPS Fix (1 bit)
+    #[bits = 2]
+    pub nmea_source: NMEASource, // NMEA Source (2 bits)
+    #[bits = 3]
+    pub compression_origin: CompressionOrigin, // Compression Origin (3 bits)
 }
 
 #[derive(BitfieldSpecifier)]
 #[derive(Debug, Serialize, Deserialize)]
+pub enum APRSGPSFix {
+    LastKnown = 0,
+    Current = 1,
+}
+
+#[derive(BitfieldSpecifier)]
+#[derive(Debug, Serialize, Deserialize)]
+pub enum NMEASource {
+    Other = 0,
+    GLL = 1,
+    GGA = 2,
+    RMC = 3,
+}
+
+#[derive(BitfieldSpecifier)]
+#[derive(Debug, Serialize, Deserialize)]
+pub enum CompressionOrigin {
+    Compressed = 0,
+    TNCBText = 1,
+    Software = 2,
+    TBD = 3,
+    KPC3 = 4,
+    Pico = 5,
+    OtherTracker = 6,
+    Digipeater = 7,
+}
+
+/// Bitfield for the Comment field
+/// The Comment field contains both Mesh data and Custom data from the ADS
+/// The Comment field is 40 bytes long (320 bits)
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
+pub struct Comment {
+    pub uid: u8, // Unique Identifier (8 bits)
+    pub destination_uid: u8, // Destination Unique Identifier (8 bits)
+    pub msg_id: u8, // Message ID (8 bits)
+    pub hops_left : u8, // Hops Left (3 bits)
+    pub comment_type: DeviceType, // Type (2 bits)
+    pub msg_type: MessageType, // Message Type (2 bit)
+    pub team_number: u8, // Team ID (6 bits)
+    // 39 Bits for above fields
+    // 28 Bytes or 224 Bits for ADS data
+    pub ads: AdsCompressed
+}
+
+#[derive(BitfieldSpecifier)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 pub enum DeviceType {
+    #[default]
     Ground = 0,
     Top = 1,
     Bottom = 2,
@@ -172,9 +254,10 @@ pub enum DeviceType {
 }
 
 #[derive(BitfieldSpecifier)]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 pub enum MessageType {
     Ack = 0,
+    #[default]
     Data = 1,
     Placeholder = 2,
     Custom = 3,
@@ -196,28 +279,20 @@ pub struct AdsUncompressed {
     pub timestamp : B64,
 }
 
-#[bitfield(bits = 128)]
-#[derive(BitfieldSpecifier)]
-#[derive(Debug, Serialize, Deserialize)]
-pub struct AdsCompressedPart1 {
-    pub lat: B16,
-    pub lon: B16,
-    pub vel_x: B16,
-    pub vel_y: B16,
-    pub vel_z: B16,
-    pub acc_x: B16,
-    pub acc_y: B16,
-    pub acc_z: B16,
-}
-
-#[bitfield(bits = 80)]
-#[derive(BitfieldSpecifier)]
-#[derive(Debug, Serialize, Deserialize)]
-pub struct AdsCompressedPart2 {
-    pub alt: B16,
-    pub predicted_apogee: B16,
-    pub flap_deploy_angle: B16,
-    pub timestamp: B32,
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
+pub struct AdsCompressed {
+    pub lat: i16,
+    pub lon: i16,
+    pub vel_x: i16,
+    pub vel_y: i16,
+    pub vel_z: i16,
+    pub acc_x: i16,
+    pub acc_y: i16,
+    pub acc_z: i16,
+    pub alt: i16,
+    pub predicted_apogee: i16,
+    pub flap_deploy_angle: i16,
+    pub timestamp: i32,
 }
 
 // impl AprsCompressedPositionReport {
@@ -267,13 +342,14 @@ mod tests {
     #[test]
     fn test_aprs_compressed_position_report() {
         let report = AprsCompressedPositionReport {
+            compression_format: '/',
             time: *b"092345z",
             symbol_table: '/',
             compressed_lat: *b"5L!!",
             compressed_long: *b"<*e7",
             symbol_code: '{',
             compressed_altitude: *b"?!",
-            compressed_type: 'T',
+            compression_type: 'T',
             comment: Comment::new()
                 .with_uid(1)
                 .with_destination_uid(2)
@@ -304,6 +380,6 @@ mod tests {
         assert_eq!(report.compressed_long, *b"<*e7");
         assert_eq!(report.symbol_code, '{');
         assert_eq!(report.compressed_altitude, *b"?!");
-        assert_eq!(report.compressed_type, 'T');
+        assert_eq!(report.compression_type, 'T');
     }
 }
