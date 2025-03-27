@@ -1,6 +1,6 @@
 use modular_bitfield::prelude::*;
-use serde::{Deserialize, Serialize};
-use ublox::GpsFix as UbloxGPSFix;
+use serde::{de, Deserialize, Serialize};
+use ublox::{GpsFix as UbloxGPSFix, NavSatQualityIndicator as UbloxNavSatQualityIndicator, NavSatSvHealth as UbloxNavSatSvHealth, NavSatOrbitSource as UbloxNavSatOrbitSource};
 
 /// AllSensorData is a struct that contains the data that is sent over the two radios
 /// It includes all telemetry data from the payload
@@ -74,6 +74,7 @@ pub struct GPS{
     pub num_sats: u8,
     pub fix_type: GpsFix,
     pub utc_time: UTC,
+    pub sats_data: NavSat 
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -125,6 +126,117 @@ impl From<u8> for GpsFix {
         }
     }
 }
+
+/// Max size is 1240 bytes
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct NavSat {
+    pub itow: u32,
+    pub version: u8,
+    pub num_svs: u8,
+    /// Max possible length is 98 * 12 = 1176 bytes
+    /// 
+    /// Serede as a max support for 32 long arrays by default, probably good enough for now.
+    pub svs: [Option<NavSatSvInfo>; 32],
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct NavSatSvInfo {
+    pub gnss_id: u8,
+    pub sv_id: u8,
+    pub cno: u8,
+    pub elev: i8,
+    pub azim: i16,
+    pub pr_res: i16,
+    pub flags: NavSatSvFlags,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct NavSatSvFlags {
+    pub quality_ind: NavSatQualityIndicator,
+    pub sv_used: bool,
+    pub health: NavSatSvHealth,
+    pub differential_correction_available: bool,
+    pub smoothed: bool,
+    pub orbit_sources: NavSatOrbitSource,
+    pub ephemeris_available: bool,
+    pub almanac_available: bool,
+    pub an_offline_available: bool,
+    pub an_auto_available: bool,
+    pub sbas_corr: bool,
+    pub rtcm_corr: bool,
+    pub slas_corr: bool,
+    pub spartn_corr: bool,
+    pub pr_corr: bool,
+    pub cr_corr: bool,
+    pub do_corr: bool,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum NavSatQualityIndicator {
+    #[default]
+    NoSignal = 0,
+    Searching = 1,
+    SignalAcquired = 2,
+    SignalDetected = 3,
+    CodeLock = 4,
+    CarrierLock = 5,
+}
+
+impl From<UbloxNavSatQualityIndicator> for NavSatQualityIndicator {
+    fn from(value: UbloxNavSatQualityIndicator) -> Self {
+        match value {
+            UbloxNavSatQualityIndicator::NoSignal => NavSatQualityIndicator::NoSignal,
+            UbloxNavSatQualityIndicator::Searching => NavSatQualityIndicator::Searching,
+            UbloxNavSatQualityIndicator::SignalAcquired => NavSatQualityIndicator::SignalAcquired,
+            UbloxNavSatQualityIndicator::SignalDetected => NavSatQualityIndicator::SignalDetected,
+            UbloxNavSatQualityIndicator::CodeLock => NavSatQualityIndicator::CodeLock,
+            UbloxNavSatQualityIndicator::CarrierLock => NavSatQualityIndicator::CarrierLock,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum NavSatOrbitSource {
+    #[default]
+    NoInfoAvailable,
+    Ephemeris,
+    Almanac,
+    AssistNowOffline,
+    AssistNowAutonomous,
+    Other(u8),
+}
+
+impl From<UbloxNavSatOrbitSource> for NavSatOrbitSource {
+    fn from(value: UbloxNavSatOrbitSource) -> Self {
+        match value {
+            UbloxNavSatOrbitSource::NoInfoAvailable => NavSatOrbitSource::NoInfoAvailable,
+            UbloxNavSatOrbitSource::Ephemeris => NavSatOrbitSource::Ephemeris,
+            UbloxNavSatOrbitSource::Almanac => NavSatOrbitSource::Almanac,
+            UbloxNavSatOrbitSource::AssistNowOffline => NavSatOrbitSource::AssistNowOffline,
+            UbloxNavSatOrbitSource::AssistNowAutonomous => NavSatOrbitSource::AssistNowAutonomous,
+            UbloxNavSatOrbitSource::Other(value) => NavSatOrbitSource::Other(value),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum NavSatSvHealth {
+    Healthy = 0,
+    Unhealthy = 1,
+    #[default]
+    Unknown = 3,
+}
+
+impl From<UbloxNavSatSvHealth> for NavSatSvHealth {
+    fn from(value: UbloxNavSatSvHealth) -> Self {
+        match value {
+            UbloxNavSatSvHealth::Healthy => NavSatSvHealth::Healthy,
+            UbloxNavSatSvHealth::Unhealthy => NavSatSvHealth::Unhealthy,
+            UbloxNavSatSvHealth::Unknown(_) => NavSatSvHealth::Unknown,
+        }
+    }
+}
+
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
 pub struct UTC {
